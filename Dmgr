@@ -1,0 +1,60 @@
+---
+- name: Patch DMGR Server
+  hosts: dmgr
+  become: yes
+  remote_user: rlms
+  gather_facts: no
+
+  vars:
+    was_home: /rlms/IBM/WebSphere/AppServer
+    imcl: /rlms/IBM/InstallationManager/eclipse/tools/imcl
+
+    repo_was: /rlms/soft/Fix5.26/repository.config
+    repo_java: /rlms/soft/JAVA_8.0.8.55/repository.config
+
+    shared_dir: /rlms/IBM/InstallationManager/IMShared
+
+    dmgr_profile: Dmgr01
+
+    was_fixpack: com.ibm.websphere.ND.v90_9.0.5026.20251114_1520
+    java_fixpack: com.ibm.java.jdk.v8_8.0.8055.20251007_2253
+
+  tasks:
+
+  - name: Backup cacerts
+    copy:
+      src: "{{ was_home }}/java/8.0/jre/lib/security/cacerts"
+      dest: "/rlms/soft/cacerts_dmgr"
+      remote_src: yes
+
+  - name: Stop DMGR
+    shell: "{{ was_home }}/bin/stopManager.sh -profileName {{ dmgr_profile }}"
+    ignore_errors: yes
+
+  - name: Apply Fixpack
+    shell: >
+      {{ imcl }} install
+      {{ was_fixpack }}
+      {{ java_fixpack }}
+      -repositories {{ repo_was }},{{ repo_java }}
+      -installationDirectory {{ was_home }}
+      -sharedResourcesDirectory {{ shared_dir }}
+      -acceptLicense -sVP -silent
+
+  - name: Validate Version
+    shell: "{{ was_home }}/bin/versionInfo.sh"
+    register: version_output
+
+  - name: Check Version
+    fail:
+      msg: "Patch verification failed"
+    when: "'9.0.5.26' not in version_output.stdout"
+
+  - name: Restore cacerts
+    copy:
+      src: "/rlms/soft/cacerts_dmgr"
+      dest: "{{ was_home }}/java/8.0/jre/lib/security/cacerts"
+      remote_src: yes
+
+  - name: Start DMGR
+    shell: "{{ was_home }}/bin/startManager.sh -profileName {{ dmgr_profile }}"
