@@ -1,0 +1,25 @@
+---
+- name: Patch IHS Server
+  hosts: ihs
+  become: yes
+  remote_user: rlms
+  gather_facts: no
+
+  vars:
+    ihs_home: /rlms/IBM/HTTPServer
+
+  tasks:
+
+  - name: Stop IHS
+    shell: "{{ ihs_home }}/bin/apachectl stop"
+
+  - name: Backup HTTPD Config
+    shell: >
+      cp -rp
+      {{ ihs_home }}/conf
+      /rlms/soft/httpd_conf_backup
+
+  # Add your IHS fixpack installation task here
+
+  - name: Start IHS
+    shell: "{{ ihs_home }}/bin/apachectl start"
