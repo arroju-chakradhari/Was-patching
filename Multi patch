@@ -1,0 +1,131 @@
+---
+- name: Patch WebSphere App Server
+  hosts: app
+  become: yes
+  remote_user: rlms
+  gather_facts: no
+
+  vars:
+    was_home: /rlms/IBM/WebSphere/AppServer
+    imcl: /rlms/IBM/InstallationManager/eclipse/tools/imcl
+
+    repo_was: /rlms/soft/Fix5.26/repository.config
+    repo_java: /rlms/soft/JAVA_8.0.8.55/repository.config
+
+    shared_dir: /rlms/IBM/InstallationManager/IMShared
+
+    dmgr_host: 10.191.154.127
+
+    was_fixpack: com.ibm.websphere.ND.v90_9.0.5026.20251114_1520
+    java_fixpack: com.ibm.java.jdk.v8_8.0.8055.20251007_2253
+
+    cacerts_src: "{{ was_home }}/java/8.0/jre/lib/security/cacerts"
+    cacerts_backup: /rlms/soft/cacerts_backup
+
+  tasks:
+
+  - name: Display Server
+    debug:
+      msg: "Starting patch on {{ inventory_hostname }}"
+
+  - name: Backup cacerts
+    copy:
+      src: "{{ cacerts_src }}"
+      dest: "{{ cacerts_backup }}_{{ inventory_hostname }}"
+      remote_src: yes
+
+  - name: Stop Application Servers
+    shell: |
+      for s in $(ls {{ was_home }}/profiles/{{ item }}/servers); do
+        if [ "$s" != "nodeagent" ]; then
+          echo "Stopping Server : $s"
+          {{ was_home }}/bin/stopServer.sh $s \
+          -profileName {{ item }} \
+          -username wasadmin \
+          -password wasadmin || true
+        fi
+      done
+    loop: "{{ app_profiles }}"
+
+  - name: Stop NodeAgent
+    shell: |
+      echo "Stopping NodeAgent : {{ item }}"
+      {{ was_home }}/bin/stopNode.sh \
+      -profileName {{ item }} || true
+    loop: "{{ app_profiles }}"
+
+  - name: Apply WAS Fixpack
+    shell: >
+      {{ imcl }} install
+      {{ was_fixpack }}
+      {{ java_fixpack }}
+      -repositories {{ repo_was }},{{ repo_java }}
+      -installationDirectory {{ was_home }}
+      -sharedResourcesDirectory {{ shared_dir }}
+      -acceptLicense
+      -sVP
+      -silent
+
+  - name: Verify Installed Version
+    shell: "{{ was_home }}/bin/versionInfo.sh"
+    register: version_output
+
+  - name: Display Version
+    debug:
+      var: version_output.stdout_lines
+
+  - name: Restore cacerts
+    copy:
+      src: "{{ cacerts_backup }}_{{ inventory_hostname }}"
+      dest: "{{ cacerts_src }}"
+      remote_src: yes
+
+  - name: Start NodeAgent
+    shell: |
+      echo "Starting NodeAgent : {{ item }}"
+      {{ was_home }}/bin/startNode.sh \
+      -profileName {{ item }}
+    loop: "{{ app_profiles }}"
+
+  - name: Sync Node
+    shell: |
+      echo "Syncing Profile : {{ item }}"
+      {{ was_home }}/bin/syncNode.sh \
+      {{ dmgr_host }} \
+      8879 \
+      -username wasadmin \
+      -password wasadmin
+    loop: "{{ app_profiles }}"
+
+  - name: Start Application Servers
+    shell: |
+      for s in $(ls {{ was_home }}/profiles/{{ item }}/servers); do
+        if [ "$s" != "nodeagent" ]; then
+          echo "Starting Server : $s"
+          {{ was_home }}/bin/startServer.sh $s \
+          -profileName {{ item }}
+        fi
+      done
+    loop: "{{ app_profiles }}"
+
+  - name: Patch Completed
+    debug:
+      msg: "Patch completed successfully on {{ inventory_hostname }}"
+
+
+
+
+
+
+-------------
+[dmgr]
+secdmgr ansible_host=10.191.154.127
+
+[app]
+secapp1 ansible_host=10.191.154.128 app_profiles='["D2R1MSGAPP1","D2R1MSGAPP2"]'
+secapp2 ansible_host=10.191.154.129 app_profiles='["D2R1MSGAPP3"]'
+
+[ihs]
+secihs ansible_host=10.191.154.130
+
+
