@@ -1,0 +1,101 @@
+---
+- name: Patch IHS and WebSphere Plugin
+  hosts: ihs
+  become: yes
+  remote_user: rlms
+  gather_facts: no
+
+  vars:
+    imcl: /rlms/IBM/InstallationManager/eclipse/tools/imcl
+
+    ihs_home: /rlms/IBM/HTTPServer
+    plugin_home: /rlms/IBM/WebSphere/Plugins
+
+    shared_dir: /rlms/IBM/InstallationManager/IMShared
+
+    repo_ihs: /rlms/soft/IHS_FIX/repository.config
+    repo_plugin: /rlms/soft/PLUGIN_FIX/repository.config
+
+    ihs_fixpack: com.ibm.websphere.IHS.v90_xxxxxxxxx
+    plugin_fixpack: com.ibm.websphere.PLG.v90_xxxxxxxxx
+
+  tasks:
+
+  - name: Display Start Message
+    debug:
+      msg: "Starting IHS and Plugin patch"
+
+  - name: Backup httpd.conf
+    copy:
+      src: "{{ ihs_home }}/conf/httpd.conf"
+      dest: "/rlms/soft/httpd.conf.bkp"
+      remote_src: yes
+
+  - name: Backup plugin-cfg.xml
+    copy:
+      src: "{{ plugin_home }}/config/webserver1/plugin-cfg.xml"
+      dest: "/rlms/soft/plugin-cfg.xml.bkp"
+      remote_src: yes
+    ignore_errors: yes
+
+  - name: Stop IHS
+    shell: |
+      echo "Stopping IBM HTTP Server"
+      {{ ihs_home }}/bin/apachectl stop
+    ignore_errors: yes
+
+  - name: Check IHS Process
+    shell: ps -ef | grep httpd | grep -v grep
+    register: ihs_status
+    failed_when: false
+
+  - name: Display IHS Status
+    debug:
+      var: ihs_status.stdout_lines
+
+  - name: Install IHS Fixpack
+    shell: >
+      {{ imcl }} install
+      {{ ihs_fixpack }}
+      -repositories {{ repo_ihs }}
+      -installationDirectory {{ ihs_home }}
+      -sharedResourcesDirectory {{ shared_dir }}
+      -acceptLicense
+      -sVP
+      -silent
+
+  - name: Install Plugin Fixpack
+    shell: >
+      {{ imcl }} install
+      {{ plugin_fixpack }}
+      -repositories {{ repo_plugin }}
+      -installationDirectory {{ plugin_home }}
+      -sharedResourcesDirectory {{ shared_dir }}
+      -acceptLicense
+      -sVP
+      -silent
+
+  - name: Verify IHS Version
+    shell: "{{ imcl }} listInstalledPackages -long"
+    register: installed_pkgs
+
+  - name: Display Installed Packages
+    debug:
+      var: installed_pkgs.stdout_lines
+
+  - name: Start IHS
+    shell: |
+      echo "Starting IBM HTTP Server"
+      {{ ihs_home }}/bin/apachectl start
+
+  - name: Verify IHS Started
+    shell: ps -ef | grep httpd | grep -v grep
+    register: ihs_running
+
+  - name: Display Running IHS Processes
+    debug:
+      var: ihs_running.stdout_lines
+
+  - name: Patch Completed
+    debug:
+      msg: "IHS and Plugin patch completed successfully"
